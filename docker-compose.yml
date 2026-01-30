@@ -1,0 +1,61 @@
+version: "3.8"
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: scale-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: scale
+      RABBITMQ_DEFAULT_PASS: scale_secret
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  orchestrator:
+    build: ./orchestrator
+    container_name: scale-orchestrator
+    ports:
+      - "3000:3000"
+    environment:
+      RABBITMQ_URL: amqp://scale:scale_secret@rabbitmq:5672
+      ORCHESTRATOR_PORT: 3000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  logging-service:
+    build: ./logging-service
+    container_name: scale-logging-service
+    environment:
+      RABBITMQ_URL: amqp://scale:scale_secret@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  reporting-service:
+    build: ./reporting-service
+    container_name: scale-reporting-service
+    environment:
+      RABBITMQ_URL: amqp://scale:scale_secret@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mock-worker-service:
+    build: ./mock-worker-service
+    container_name: scale-mock-worker-service
+    environment:
+      RABBITMQ_URL: amqp://scale:scale_secret@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
