@@ -10,6 +10,7 @@ This file contains Mermaid diagrams that render in GitHub, GitLab, VS Code (with
 flowchart LR
     subgraph External
         WMS[Scale WMS]
+        SQL[("SQL Server ils")]
     end
 
     subgraph "Orchestrator"
@@ -23,17 +24,15 @@ flowchart LR
 
     subgraph "Microservices"
         LOG[Logging]
-        RPT[Reporting]
-        WRK[Mock worker]
+        WRK[Worker]
     end
 
     WMS -->|HTTP + X-Routing-Key| API
     API -->|Publish| EX
     EX --> LOG
-    EX --> RPT
     EX --> WRK
+    WRK -->|Named queries| SQL
     LOG -->|Reply| RQ
-    RPT -->|Reply| RQ
     WRK -->|Reply| RQ
     RQ -->|Consume| API
     API -->|HTTP response| WMS
@@ -72,22 +71,39 @@ flowchart TB
     EX[scale.topic exchange]
 
     EX -->|logging| QL[scale.logging]
-    EX -->|reporting| QR[scale.reporting]
     EX -->|worker| QW[scale.worker]
 
     LOG[Logging service] --> QL
-    RPT[Reporting service] --> QR
-    WRK[Mock worker] --> QW
+    WRK[Worker service] --> QW
 
     LOG --> RQ[orchestrator.replies]
-    RPT --> RQ
     WRK --> RQ
     RQ --> Orch[Orchestrator]
 ```
 
 ---
 
-## 4. Concurrent requests (multiple WMS requests)
+## 4. Worker SQL query flow
+
+```mermaid
+sequenceDiagram
+    participant WMS as Scale WMS
+    participant Orch as Orchestrator
+    participant WRK as Worker service
+    participant SQL as SQL Server
+
+    WMS->>Orch: POST body query ping
+    Orch->>WRK: RabbitMQ message
+    WRK->>WRK: Lookup named query in registry
+    WRK->>SQL: Execute parameterized SQL
+    SQL->>WRK: Result rows
+    WRK->>Orch: Reply ok rowCount rows
+    Orch->>WMS: HTTP 200 JSON response
+```
+
+---
+
+## 5. Concurrent requests (multiple WMS requests)
 
 ```mermaid
 sequenceDiagram
@@ -98,8 +114,8 @@ sequenceDiagram
     participant S1 as Service instance 1
     participant S2 as Service instance 2
 
-    W1->>Orch: Request (e.g. logging)
-    W2->>Orch: Request (e.g. logging)
+    W1->>Orch: Request (e.g. worker)
+    W2->>Orch: Request (e.g. worker)
     Orch->>RMQ: Publish msg1 (corrId1)
     Orch->>RMQ: Publish msg2 (corrId2)
     Note over Orch: Both requests waiting

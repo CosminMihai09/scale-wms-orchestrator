@@ -1,0 +1,14 @@
+{
+  "name": "scale-worker-service",
+  "version": "1.0.0",
+  "description": "SQL query worker microservice - executes named queries against SQL Server via RabbitMQ",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.3",
+    "mssql": "^11.0.1"
+  }
+}

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * Capacity test: sends 1000 requests to each microservice (logging, reporting, worker)
- * via the orchestrator and logs timing and completion.
+ * Capacity test: sends requests to logging and worker services via the orchestrator.
  *
  * Usage: node scripts/capacity-test.js [baseUrl] [concurrency] [requestsPerService]
  *   baseUrl            default http://localhost:3000
@@ -9,14 +8,19 @@
  *   requestsPerService default 1000
  *
  * Example: node scripts/capacity-test.js
- *          node scripts/capacity-test.js http://localhost:3000 100 500
+ *          node scripts/capacity-test.js http://localhost:3000 20 300
  */
 
 const BASE_URL = process.argv[2] || "http://localhost:3000";
 const CONCURRENCY = Math.max(1, parseInt(process.argv[3], 10) || 100);
 const REQUESTS_PER_SERVICE = Math.max(1, parseInt(process.argv[4], 10) || 1000);
 
-const ROUTING_KEYS = ["logging", "reporting", "worker"];
+const ROUTING_KEYS = ["logging", "worker"];
+
+const REQUEST_BODIES = {
+  logging: (index) => ({ requestIndex: index, ts: Date.now() }),
+  worker: () => ({ query: "ping" }),
+};
 
 function log(msg) {
   const ts = new Date().toISOString();
@@ -26,6 +30,7 @@ function log(msg) {
 async function sendOne(url, routingKey, index) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35000);
+  const bodyFactory = REQUEST_BODIES[routingKey] || (() => ({}));
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -33,7 +38,7 @@ async function sendOne(url, routingKey, index) {
         "Content-Type": "application/json",
         "X-Routing-Key": routingKey,
       },
-      body: JSON.stringify({ requestIndex: index, ts: Date.now() }),
+      body: JSON.stringify(bodyFactory(index)),
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -93,7 +98,6 @@ async function main() {
   log(`Orchestrator: ${url}`);
   log("---");
 
-  // Run all three services in parallel
   const results = await Promise.all(
     ROUTING_KEYS.map((key) => runService(url, key, REQUESTS_PER_SERVICE))
   );
@@ -110,6 +114,13 @@ async function main() {
   log("Per service:");
   for (const r of results) {
     log(`  ${r.routingKey.padEnd(10)} ${(r.elapsedMs / 1000).toFixed(2)}s  ${r.success} ok  ${r.errors} err  ${r.rps.toFixed(2)} req/s`);
+  }
+
+  const worker = results.find((r) => r.routingKey === "worker");
+  if (worker && worker.rps < 10) {
+    log("");
+    log("WARNING: worker throughput is below 10 req/s target.");
+    process.exit(1);
   }
 }
 

@@ -1,0 +1,14 @@
+{
+  "name": "scale-wms-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scale WMS microservices orchestrator",
+  "scripts": {
+    "test:db": "node scripts/test-db-connection.js",
+    "test:capacity": "node scripts/capacity-test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mssql": "^11.0.1"
+  }
+}

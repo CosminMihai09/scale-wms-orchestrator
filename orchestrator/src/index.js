@@ -16,7 +16,7 @@ async function connectRabbitMQ() {
   channel = await conn.createChannel();
   await channel.assertExchange(EXCHANGE, "topic", { durable: true });
   await channel.assertQueue(REPLY_QUEUE, { durable: true });
-  channel.prefetch(1);
+  channel.prefetch(Number(process.env.ORCHESTRATOR_REPLY_PREFETCH) || 50);
 
   channel.consume(REPLY_QUEUE, (msg) => {
     if (!msg) return;
@@ -76,7 +76,7 @@ app.all("*", async (req, res) => {
   if (!routingKey) {
     return res.status(400).json({
       error: "Missing routing key",
-      hint: `Set header "${ROUTING_HEADER}" or "X-Routing-Key" (e.g. logging, reporting, worker)`,
+      hint: `Set header "${ROUTING_HEADER}" or "X-Routing-Key" (e.g. logging, worker)`,
     });
   }
 
