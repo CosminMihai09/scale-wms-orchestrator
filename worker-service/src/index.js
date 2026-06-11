@@ -1,6 +1,12 @@
 const amqp = require("amqplib");
 const queries = require("./queries");
 const { getPool, runNamedQuery } = require("./db");
+const { mapShipmentHeaderRows } = require("./mappers/shipmentHeader");
+const {
+  isScaleShipmentHeadersGet,
+  getShipmentHeadersParams,
+  QUERY_SHIPMENT_BY_ID_WAREHOUSE,
+} = require("./routes");
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://localhost:5672";
 const EXCHANGE = "scale.topic";
@@ -32,10 +38,35 @@ function extractQueryRequest(payload) {
   return { queryName, params };
 }
 
-async function processMessage(channel, msg) {
-  const payload = JSON.parse(msg.content.toString());
-  const extracted = extractQueryRequest(payload);
+async function handleScaleShipmentHeadersGet(channel, msg, payload) {
+  const extracted = getShipmentHeadersParams(payload);
+  if (extracted.error) {
+    sendReply(channel, msg, { statusCode: 400, body: { error: extracted.error } });
+    channel.ack(msg);
+    return;
+  }
 
+  const queryDef = queries[QUERY_SHIPMENT_BY_ID_WAREHOUSE];
+  try {
+    const result = await runNamedQuery(queryDef, extracted.params);
+    const body = mapShipmentHeaderRows(result.rows);
+    console.log("[WORKER] Scale API ShipmentHeadersApi/Get:", {
+      at: new Date().toISOString(),
+      shipmentId: extracted.params.shipmentID,
+      warehouse: extracted.params.warehouse,
+      rowCount: body.length,
+    });
+    sendReply(channel, msg, { statusCode: 200, body });
+    channel.ack(msg);
+  } catch (err) {
+    console.error("[WORKER] ShipmentHeadersApi/Get error:", err.message);
+    sendReply(channel, msg, { statusCode: 500, body: { error: err.message } });
+    channel.ack(msg);
+  }
+}
+
+async function handleNamedQuery(channel, msg, payload) {
+  const extracted = extractQueryRequest(payload);
   if (extracted.error) {
     sendReply(channel, msg, {
       statusCode: 400,
@@ -87,6 +118,17 @@ async function processMessage(channel, msg) {
     });
     channel.ack(msg);
   }
+}
+
+async function processMessage(channel, msg) {
+  const payload = JSON.parse(msg.content.toString());
+
+  if (isScaleShipmentHeadersGet(payload)) {
+    await handleScaleShipmentHeadersGet(channel, msg, payload);
+    return;
+  }
+
+  await handleNamedQuery(channel, msg, payload);
 }
 
 async function run() {

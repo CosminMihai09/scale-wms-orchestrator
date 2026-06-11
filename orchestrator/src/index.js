@@ -46,10 +46,16 @@ async function connectRabbitMQ() {
   return channel;
 }
 
+const SCALE_SHIPMENT_HEADERS_GET =
+  /\/ilsintegrationservices\/scaleapi\/ShipmentHeadersApi\/Get\/?$/i;
+
 function getRoutingKey(req) {
   const key = req.get(ROUTING_HEADER) || req.get("X-Routing-Key") || req.get("x-scale-routing-key");
-  if (!key) return null;
-  return key.trim();
+  if (key) return key.trim();
+  if (req.method === "GET" && SCALE_SHIPMENT_HEADERS_GET.test(req.path)) {
+    return "worker";
+  }
+  return null;
 }
 
 function waitForReply(correlationId) {
@@ -107,7 +113,12 @@ app.all("*", async (req, res) => {
     const reply = await waitForReply(correlationId);
     const status = reply.statusCode ?? 200;
     res.status(status);
-    if (reply.body !== undefined && reply.body !== null && typeof reply.body === "object" && !Buffer.isBuffer(reply.body)) {
+    if (
+      reply.body !== undefined &&
+      reply.body !== null &&
+      (Array.isArray(reply.body) ||
+        (typeof reply.body === "object" && !Buffer.isBuffer(reply.body)))
+    ) {
       res.json(reply.body);
     } else {
       res.send(reply.body);

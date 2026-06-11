@@ -41,7 +41,17 @@ npm install
 node scripts/test-db-connection.js
 ```
 
-## Worker API contract
+## Scale-compatible Shipment Headers API
+
+Drop-in replacement for the Scale integration GET endpoint (no routing header required):
+
+```bash
+curl "http://localhost:3000/ilsintegrationservices/scaleapi/ShipmentHeadersApi/Get?shipmentId=DIRE1&warehouse=MN"
+```
+
+Returns a JSON **array** of shipment objects with **PascalCase** property names, matching the real Scale API response shape.
+
+## Worker API contract (internal / load tests)
 
 Send requests to the orchestrator with `X-Routing-Key: worker` and a JSON body:
 
@@ -49,7 +59,7 @@ Send requests to the orchestrator with `X-Routing-Key: worker` and a JSON body:
 { "query": "ping", "params": {} }
 ```
 
-Built-in queries: `ping`, `db-info`, `list-tables`. Add more in `worker-service/src/queries.js`.
+Built-in queries: `ping`, `db-info`, `list-tables`, `ShipmentHeader.by.ShipmentId.and.Warehouse`. Add more in `worker-service/src/queries.js`.
 
 **Example:**
 
