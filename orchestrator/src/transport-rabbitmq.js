@@ -125,9 +125,19 @@ function publishAuditEvent(event) {
   }
 }
 
+async function forwardToWorker(payload) {
+  return forwardRequest("worker", payload, payload.correlationId);
+}
+
+async function forwardToLogging(payload) {
+  return forwardRequest("logging", payload, payload.correlationId);
+}
+
 module.exports = {
   connectWithRetry,
   isReady,
+  forwardToWorker,
+  forwardToLogging,
   forwardRequest,
   publishAuditEvent,
 };

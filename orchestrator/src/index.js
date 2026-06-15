@@ -8,7 +8,11 @@ const ROUTING_HEADER = "x-routing-key";
 const AUDIT_LOG_ENABLED = (process.env.AUDIT_LOG_ENABLED || "true").toLowerCase() !== "false";
 
 const transport =
-  TRANSPORT === "rabbitmq" ? require("./transport-rabbitmq") : require("./transport-http");
+  TRANSPORT === "rabbitmq"
+    ? require("./transport-rabbitmq")
+    : TRANSPORT === "nats"
+      ? require("./transport-nats")
+      : require("./transport-http");
 
 function getRoutingKey(req) {
   const key = req.get(ROUTING_HEADER) || req.get("X-Routing-Key") || req.get("x-scale-routing-key");
@@ -78,7 +82,9 @@ app.all("*", async (req, res) => {
     const hint =
       TRANSPORT === "rabbitmq"
         ? "Orchestrator not connected to RabbitMQ"
-        : "Configure WORKER_URLS / LOGGING_HTTP_URL";
+        : TRANSPORT === "nats"
+          ? "Orchestrator not connected to NATS"
+          : "Configure WORKER_URLS / LOGGING_HTTP_URL";
     return res.status(503).json({ error: "Service unavailable", message: hint });
   }
 
@@ -122,7 +128,7 @@ app.all("*", async (req, res) => {
     const failureStatus =
       err.message === "Reply timeout"
         ? 504
-        : err.message === "RabbitMQ connection lost"
+        : err.message === "RabbitMQ connection lost" || err.message === "NATS connection lost"
           ? 503
           : 500;
     publishAuditEvent({
@@ -152,6 +158,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`Orchestrator listening on port ${PORT} (transport=${TRANSPORT})`);
 });
 
-if (TRANSPORT === "rabbitmq") {
+if (TRANSPORT === "rabbitmq" || TRANSPORT === "nats") {
   transport.connectWithRetry();
 }

@@ -15,6 +15,20 @@ services:
       retries: 5
     restart: unless-stopped
 
+  nats:
+    profiles: ["nats"]
+    image: nats:2.10-alpine
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["-m", "8222"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   orchestrator:
     build:
       context: .
@@ -28,9 +42,14 @@ services:
       TRANSPORT: ${TRANSPORT:-http}
       WORKER_URLS: ${WORKER_URLS:-http://worker-service:4001}
       LOGGING_HTTP_URL: ${LOGGING_HTTP_URL:-http://logging-service:4101}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
       ORCHESTRATOR_REPLY_PREFETCH: 50
       AUTH_APP_ID: ${AUTH_APP_ID:-}
       AUDIT_LOG_ENABLED: ${AUDIT_LOG_ENABLED:-true}
+    depends_on:
+      nats:
+        condition: service_started
+        required: false
     restart: unless-stopped
 
   logging-service:
@@ -43,10 +62,15 @@ services:
     environment:
       TRANSPORT: ${TRANSPORT:-http}
       LOGGING_HTTP_PORT: 4101
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
       METRICS_PORT: 9100
       QUEUE_MONITOR_ENABLED: ${QUEUE_MONITOR_ENABLED:-false}
       QUEUE_DEPTH_WARN_THRESHOLD: ${QUEUE_DEPTH_WARN_THRESHOLD:-100}
+    depends_on:
+      nats:
+        condition: service_started
+        required: false
     restart: unless-stopped
 
   worker-service:
@@ -58,8 +82,13 @@ services:
     environment:
       TRANSPORT: ${TRANSPORT:-http}
       WORKER_HTTP_PORT: 4001
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
     expose:
       - "4001"
     extra_hosts:
       - "Wms-qasql:10.16.36.212"
+    depends_on:
+      nats:
+        condition: service_started
+        required: false
     restart: unless-stopped

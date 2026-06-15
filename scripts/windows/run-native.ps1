@@ -1,9 +1,12 @@
 [CmdletBinding()]
 param(
+  [ValidateSet("http", "nats")]
+  [string]$Transport = "http",
   [int]$WorkerCount = 5,
   [int]$OrchestratorPort = 3001,
   [int]$WorkerBasePort = 4001,
-  [int]$LoggingPort = 4101
+  [int]$LoggingPort = 4101,
+  [string]$NatsUrl = "nats://localhost:4222"
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,14 +30,21 @@ function Ensure-NpmInstall {
   }
 }
 
-Write-Host "=== HTTP native mode (no RabbitMQ, no Docker) ==="
+Write-Host "=== Native mode (transport=$Transport) ==="
 Write-Host "Project: $projectRoot"
 Write-Host "Workers: $WorkerCount | Orchestrator: $OrchestratorPort"
 Write-Host ""
 
 Invoke-Quiet {
   if (Get-Command docker -ErrorAction SilentlyContinue) {
-    docker compose stop orchestrator worker-service logging-service rabbitmq 2>&1 | Out-Null
+    docker compose stop orchestrator worker-service logging-service rabbitmq nats 2>&1 | Out-Null
+    if ($Transport -eq "nats") {
+      Write-Host "Starting NATS broker (Docker profile nats)..."
+      docker compose --profile nats up -d nats 2>&1 | Out-Host
+      Start-Sleep -Seconds 2
+    }
+  } elseif ($Transport -eq "nats") {
+    Write-Host "WARNING: docker not found — start NATS manually at $NatsUrl"
   }
 }
 
@@ -50,17 +60,20 @@ if (Test-Path (Join-Path $projectRoot ".env")) {
   }
 }
 
-$env:TRANSPORT = "http"
+$env:TRANSPORT = $Transport
 $env:ORCHESTRATOR_PORT = "$OrchestratorPort"
-$env:LOGGING_HTTP_PORT = "$LoggingPort"
+$env:NATS_URL = $NatsUrl
 
 $logDir = Join-Path $projectRoot "logs\native"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
-$workerUrls = @()
 $workerPids = @()
 
-Write-Host "Starting logging service on port $LoggingPort..."
+if ($Transport -eq "http") {
+  $env:LOGGING_HTTP_PORT = "$LoggingPort"
+}
+
+Write-Host "Starting logging service..."
 $loggingLog = Join-Path $logDir "logging.log"
 $loggingErr = Join-Path $logDir "logging.err.log"
 $loggingProc = Start-Process -FilePath "node" `
@@ -72,12 +85,15 @@ $loggingProc = Start-Process -FilePath "node" `
 Start-Sleep -Seconds 1
 
 Write-Host "Starting $WorkerCount worker(s)..."
+$workerUrls = @()
 for ($i = 0; $i -lt $WorkerCount; $i++) {
   $port = $WorkerBasePort + $i
-  $workerUrls += "http://localhost:$port"
-  $env:WORKER_HTTP_PORT = "$port"
-  $log = Join-Path $logDir "worker-$port.log"
-  $errLog = Join-Path $logDir "worker-$port.err.log"
+  if ($Transport -eq "http") {
+    $workerUrls += "http://localhost:$port"
+    $env:WORKER_HTTP_PORT = "$port"
+  }
+  $log = Join-Path $logDir "worker-$i.log"
+  $errLog = Join-Path $logDir "worker-$i.err.log"
   $proc = Start-Process -FilePath "node" `
     -ArgumentList "src/index.js" `
     -WorkingDirectory (Join-Path $projectRoot "worker-service") `
@@ -85,11 +101,17 @@ for ($i = 0; $i -lt $WorkerCount; $i++) {
     -RedirectStandardError $errLog `
     -PassThru -WindowStyle Hidden
   $workerPids += $proc
-  Write-Host "  worker http://localhost:$port pid=$($proc.Id)"
+  if ($Transport -eq "http") {
+    Write-Host "  worker http://localhost:$port pid=$($proc.Id)"
+  } else {
+    Write-Host "  worker nats queue member pid=$($proc.Id)"
+  }
 }
 
-$env:WORKER_URLS = ($workerUrls -join ",")
-$env:LOGGING_HTTP_URL = "http://localhost:$LoggingPort"
+if ($Transport -eq "http") {
+  $env:WORKER_URLS = ($workerUrls -join ",")
+  $env:LOGGING_HTTP_URL = "http://localhost:$LoggingPort"
+}
 
 Start-Sleep -Seconds 2
 
@@ -106,18 +128,25 @@ $orchProc = Start-Process -FilePath "node" `
 Start-Sleep -Seconds 2
 
 Write-Host ""
-Write-Host "HTTP stack running (no RabbitMQ):"
+Write-Host "Stack running (transport=$Transport):"
 Write-Host "  Orchestrator: http://localhost:$OrchestratorPort"
-Write-Host "  Workers:      $($workerUrls -join ', ')"
-Write-Host "  Logging:      http://localhost:$LoggingPort"
+if ($Transport -eq "http") {
+  Write-Host "  Workers:      $($workerUrls -join ', ')"
+  Write-Host "  Logging:      http://localhost:$LoggingPort"
+} else {
+  Write-Host "  NATS:         $NatsUrl"
+  Write-Host "  Workers:      $WorkerCount (queue group scale-workers)"
+}
 Write-Host "  Logs:         $logDir"
 Write-Host ""
 Write-Host "Load test:"
 Write-Host "  node scripts/shipment-query-test.js http://localhost:$OrchestratorPort 1000 100"
 
 @{
+  transport = $Transport
   orchestrator = $orchProc.Id
   logging = $loggingProc.Id
   workers = @($workerPids.Id)
   workerUrls = $workerUrls
+  natsUrl = $NatsUrl
 } | ConvertTo-Json | Set-Content (Join-Path $logDir "pids.json")
