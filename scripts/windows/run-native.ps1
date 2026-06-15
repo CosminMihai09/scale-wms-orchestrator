@@ -44,7 +44,7 @@ Invoke-Quiet {
       Start-Sleep -Seconds 2
     }
   } elseif ($Transport -eq "nats") {
-    Write-Host "WARNING: docker not found — start NATS manually at $NatsUrl"
+    Write-Host "WARNING: docker not found - start NATS manually at $NatsUrl"
   }
 }
 
@@ -56,7 +56,10 @@ if (Test-Path (Join-Path $projectRoot ".env")) {
   Get-Content (Join-Path $projectRoot ".env") | ForEach-Object {
     if ($_ -match '^\s*#' -or $_ -notmatch '=') { return }
     $name, $value = $_ -split '=', 2
-    if ($name) { Set-Item -Path "Env:$($name.Trim())" -Value $value.Trim().Trim('"') }
+    if ($name) {
+      $cleanValue = $value.Trim().Trim([char]34)
+      Set-Item -Path "Env:$($name.Trim())" -Value $cleanValue
+    }
   }
 }
 
@@ -131,7 +134,7 @@ Write-Host ""
 Write-Host "Stack running (transport=$Transport):"
 Write-Host "  Orchestrator: http://localhost:$OrchestratorPort"
 if ($Transport -eq "http") {
-  Write-Host "  Workers:      $($workerUrls -join ', ')"
+  Write-Host ("  Workers:      " + ($workerUrls -join ", "))
   Write-Host "  Logging:      http://localhost:$LoggingPort"
 } else {
   Write-Host "  NATS:         $NatsUrl"
